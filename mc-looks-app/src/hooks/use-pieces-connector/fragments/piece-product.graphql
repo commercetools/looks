@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 commercetools GmbH and the commercetools-labs contributors
+# Freely available, AS IS and UNSUPPORTED. See LICENSE.
+
+fragment PieceVariantFragment on ProductVariant {
+  sku
+  images {
+    url
+  }
+  prices {
+    value {
+      currencyCode
+      centAmount
+    }
+    country
+    validFrom
+    validUntil
+    customerGroupRef {
+      id
+    }
+    channelRef {
+      id
+    }
+  }
+  attributesRaw {
+    name
+    value
+  }
+  availability {
+    noChannel {
+      availableQuantity
+    }
+  }
+}
+
+fragment PieceProductFragment on Product {
+  id
+  masterData {
+    current {
+      name(acceptLanguage: $acceptLanguage)
+      masterVariant {
+        ...PieceVariantFragment
+      }
+      variants {
+        ...PieceVariantFragment
+      }
+    }
+  }
+}

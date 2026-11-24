@@ -1,0 +1,142 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 commercetools GmbH and the commercetools-labs contributors
+ * Freely available, AS IS and UNSUPPORTED. See LICENSE.
+ */
+
+import { isValidLookKey } from './keys';
+import { LOOK_MIN_PIECES } from './limits';
+import { sumListPrices } from './prices';
+import { groupPriceKeys } from './look-actions';
+import type { Money, NewLook } from './types';
+
+export type ValidationCode =
+  | 'name-missing'
+  | 'key-invalid'
+  | 'pieces-count'
+  | 'piece-duplicate'
+  | 'set-price-none'
+  | 'set-price-not-positive'
+  | 'set-price-not-below-sum'
+  | 'sum-not-live'
+  | 'saving-percent-invalid'
+  | 'discount-mode-mixed';
+
+export type ValidationField = 'label' | 'key' | 'pieces' | 'setPrice';
+
+export interface ValidationError {
+  code: ValidationCode;
+  field: ValidationField;
+  productId?: string;
+  currency?: string;
+}
+
+/**
+ * The save rules (FR-035). An empty result means the look may be written.
+ * `livePrices` holds today's list prices per piece and price cell; `keys`
+ * are the cells to consider (`lookPriceKeys`). Every cell all pieces have a
+ * price in needs a set price below its sum; a piece missing a cell leaves
+ * that cell out.
+ */
+export function validateLook(
+  look: Pick<
+    NewLook,
+    | 'key'
+    | 'label'
+    | 'componentProductIds'
+    | 'setPrice'
+    | 'savingPercent'
+    | 'sum'
+  >,
+  livePrices: Map<string, Money>,
+  keys: string[]
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  // One name is enough; readers fall back de, en, first. Empty ones are omitted.
+  if (!Object.values(look.label).some((text) => text.trim())) {
+    errors.push({ code: 'name-missing', field: 'label' });
+  }
+
+  if (look.key !== undefined && !isValidLookKey(look.key)) {
+    errors.push({ code: 'key-invalid', field: 'key' });
+  }
+
+  const ids = look.componentProductIds;
+  if (ids.length < LOOK_MIN_PIECES) {
+    errors.push({ code: 'pieces-count', field: 'pieces' });
+  }
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) {
+      errors.push({ code: 'piece-duplicate', field: 'pieces', productId: id });
+      continue;
+    }
+    seen.add(id);
+  }
+
+  const liveSum = sumListPrices(ids, livePrices, keys);
+  // A cell without a set price gets no discount and is not checked.
+  const cells = keys.filter(
+    (key) => liveSum[key] !== undefined && look.setPrice[key] !== undefined
+  );
+  if (cells.length === 0 && ids.length > 0) {
+    errors.push({ code: 'set-price-none', field: 'setPrice' });
+  }
+  const percents = look.savingPercent ?? {};
+  // A country gets one Cart Discount: all its cells use amounts, or all the
+  // same percentage.
+  for (const group of groupPriceKeys(cells)) {
+    const [first, ...rest] = group.keys;
+    for (const key of rest) {
+      if (percents[key] !== percents[first]) {
+        errors.push({
+          code: 'discount-mode-mixed',
+          field: 'setPrice',
+          currency: key,
+        });
+      }
+    }
+  }
+  for (const currency of cells) {
+    const percent = percents[currency];
+    if (
+      percent !== undefined &&
+      !(
+        Number.isFinite(percent) &&
+        percent > 0 &&
+        percent < 100 &&
+        Math.round(percent * 10) / 10 === percent
+      )
+    ) {
+      errors.push({
+        code: 'saving-percent-invalid',
+        field: 'setPrice',
+        currency,
+      });
+      continue;
+    }
+    const setPrice = look.setPrice[currency];
+    if (!Number.isInteger(setPrice) || setPrice <= 0) {
+      errors.push({
+        code: 'set-price-not-positive',
+        field: 'setPrice',
+        currency,
+      });
+      continue;
+    }
+    const sum = liveSum[currency];
+    if (setPrice >= sum) {
+      errors.push({
+        code: 'set-price-not-below-sum',
+        field: 'setPrice',
+        currency,
+      });
+    }
+    if (look.sum[currency] !== sum) {
+      errors.push({ code: 'sum-not-live', field: 'setPrice', currency });
+    }
+  }
+
+  return errors;
+}

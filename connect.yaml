@@ -1,0 +1,23 @@
+deployAs:
+  - name: mc-looks-app
+    applicationType: merchant-center-custom-application
+    configuration:
+      standardConfiguration:
+        - key: CUSTOM_APPLICATION_ID
+          description: The Custom Application ID
+          required: true
+        - key: ENTRY_POINT_URI_PATH
+          description: The Application entry point URI path
+          required: true
+          default: 'looks'
+        - key: INITIAL_PROJECT_KEY
+          description: development project key
+          required: true
+        - key: CLOUD_IDENTIFIER
+          description: one of the following gcp-us, gcp-eu, aws-us, aws-eu
+          required: true
+          default: 'gcp-eu'
+        - key: VARIANT_ATTRIBUTES
+          description: Product-variant attributes that tell the variants of a product apart, comma-separated, in display order (for example search-color,search-finish,size)
+          required: false
+          default: 'size'

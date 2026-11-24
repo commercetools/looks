@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 commercetools GmbH and the commercetools-labs contributors
+# Freely available, AS IS and UNSUPPORTED. See LICENSE.
+
+fragment LookDiscountFragment on CartDiscount {
+  id
+  version
+  key
+  isActive
+  sortOrder
+  cartPredicate
+  createdAt
+  nameAllLocales {
+    locale
+    value
+  }
+  descriptionAllLocales {
+    locale
+    value
+  }
+  value {
+    type
+    ... on AbsoluteDiscountValue {
+      money {
+        currencyCode
+        centAmount
+      }
+    }
+    ... on RelativeDiscountValue {
+      permyriad
+    }
+    ... on RelativeCartDiscountValue {
+      permyriad
+      applicationMode
+    }
+    ... on AbsoluteCartDiscountValue {
+      applicationMode
+      money {
+        currencyCode
+        centAmount
+      }
+    }
+  }
+  target {
+    type
+    ... on CartDiscountPatternTarget {
+      targetPattern {
+        ... on CountOnLineItemUnits {
+          predicate
+          minCount
+          maxCount
+        }
+      }
+    }
+  }
+}

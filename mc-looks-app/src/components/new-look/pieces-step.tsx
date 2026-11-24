@@ -1,0 +1,274 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 commercetools GmbH and the commercetools-labs contributors
+ * Freely available, AS IS and UNSUPPORTED. See LICENSE.
+ */
+
+import { useEffect, useMemo, useState, type FC } from 'react';
+import { useIntl } from 'react-intl';
+import { ArrowDownward, ArrowUpward, Close } from '@commercetools/nimbus-icons';
+import {
+  Alert,
+  DraggableList,
+  Flex,
+  Grid,
+  Heading,
+  Icon,
+  IconButton,
+  LoadingSpinner,
+  PageContent,
+  SearchInput,
+  Stack,
+  Text,
+} from '@commercetools/nimbus';
+import type { Piece } from '../../domain/types';
+import { useLookApi } from '../../hooks/context';
+import { describeError } from '../common/describe-error';
+import commonMessages from '../common/messages';
+import { PieceImage } from '../common/piece-image';
+import messages from './messages';
+import { PieceResultCard } from './piece-result-card';
+
+const SEARCH_DEBOUNCE_MS = 300;
+/** Height of one chosen-piece row: the 48 px wide 4:5 image plus padding. */
+const CHOSEN_ROW_HEIGHT = 68;
+
+type ChosenItem = {
+  key: string;
+  label: string;
+  piece: Piece;
+  [field: string]: unknown;
+};
+
+function move<T>(list: T[], from: number, to: number): T[] {
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
+}
+
+type PiecesStepProps = {
+  pieces: Piece[];
+  onPiecesChange: (pieces: Piece[]) => void;
+  errors: string[];
+  isDisabled: boolean;
+};
+
+/** Step 2: the chosen pieces (reorderable) and the product search. */
+export const PiecesStep: FC<PiecesStepProps> = (props) => {
+  const intl = useIntl();
+  const api = useLookApi();
+  const { pieces, onPiecesChange } = props;
+  const [text, setText] = useState('');
+  const [results, setResults] = useState<Piece[] | undefined>();
+  const [searchError, setSearchError] = useState<string | undefined>();
+
+  useEffect(() => {
+    let cancelled = false;
+    // The first browse runs at once, typing waits for a pause.
+    const timer = setTimeout(
+      () => {
+        setResults(undefined);
+        api.searchPieces(text).then(
+          (found) => {
+            if (cancelled) return;
+            setResults(found.pieces);
+            setSearchError(undefined);
+          },
+          (error: unknown) => {
+            if (cancelled) return;
+            setResults([]);
+            setSearchError(describeError(intl, error));
+          }
+        );
+      },
+      text ? SEARCH_DEBOUNCE_MS : 0
+    );
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [api, text, intl]);
+
+  const chosenIds = new Set(pieces.map((piece) => piece.id));
+  const items = useMemo<ChosenItem[]>(
+    () => pieces.map((piece) => ({ key: piece.id, label: piece.name, piece })),
+    [pieces]
+  );
+  const updateItems = (next: ChosenItem[]) => {
+    if (props.isDisabled) return;
+    if (
+      next.map((item) => item.key).join('|') !==
+      pieces.map((piece) => piece.id).join('|')
+    ) {
+      onPiecesChange(next.map((item) => item.piece));
+    }
+  };
+  const soldOutPieces = pieces.filter((piece) => piece.soldOutEverywhere);
+
+  return (
+    <PageContent.Root variant="full">
+      <PageContent.Root variant="full" columns="2/1">
+        <PageContent.Column>
+          <Stack gap="300">
+            <Heading as="h3" size="sm">
+              {intl.formatMessage(messages.searchLabel)}
+            </Heading>
+            <SearchInput
+              aria-label={intl.formatMessage(messages.searchLabel)}
+              placeholder={intl.formatMessage(messages.searchPlaceholder)}
+              value={text}
+              onChange={setText}
+            />
+            {searchError && <Text color="critical.11">{searchError}</Text>}
+            {results === undefined ? (
+              <LoadingSpinner
+                aria-label={intl.formatMessage(commonMessages.loading)}
+              />
+            ) : results.length === 0 ? (
+              <Text>{intl.formatMessage(messages.noProducts)}</Text>
+            ) : (
+              <Grid
+                role="list"
+                aria-label={intl.formatMessage(messages.resultsLabel)}
+                templateColumns="repeat(auto-fill, minmax(150px, 1fr))"
+                gap="400"
+              >
+                {results.map((piece) => (
+                  <Flex key={piece.id} role="listitem" minWidth={0}>
+                    <PieceResultCard
+                      piece={piece}
+                      isDisabled={props.isDisabled}
+                      state={chosenIds.has(piece.id) ? 'in-look' : 'available'}
+                      onAdd={() => onPiecesChange([...pieces, piece])}
+                    />
+                  </Flex>
+                ))}
+              </Grid>
+            )}
+          </Stack>
+        </PageContent.Column>
+        <PageContent.Column sticky={true}>
+          <Stack gap="300">
+            <Heading as="h3" size="sm">
+              {intl.formatMessage(messages.selectedHeading)}
+            </Heading>
+            {pieces.length === 0 ? (
+              <Flex
+                alignItems="center"
+                justifyContent="center"
+                width="100%"
+                height={`${CHOSEN_ROW_HEIGHT}px`}
+                borderWidth="1px"
+                borderStyle="dashed"
+                borderColor="neutral.7"
+                borderRadius="200"
+                color="neutral.11"
+              >
+                {intl.formatMessage(messages.dropHint)}
+              </Flex>
+            ) : (
+              <DraggableList.Root<ChosenItem>
+                width="100%"
+                aria-label={intl.formatMessage(messages.selectedHeading)}
+                items={items}
+                onUpdateItems={updateItems}
+              >
+                {(item: ChosenItem) => {
+                  const index = pieces.findIndex(
+                    (piece) => piece.id === item.key
+                  );
+                  return (
+                    <DraggableList.Item id={item.key} textValue={item.label}>
+                      <Flex alignItems="center" gap="300" width="100%" py="100">
+                        <PieceImage src={item.piece.imageUrl} width={48} />
+                        <Stack gap="0" flex="1" minWidth={0}>
+                          <Text fontWeight="500" truncate title={item.label}>
+                            {item.label}
+                          </Text>
+                        </Stack>
+                        <IconButton
+                          size="xs"
+                          variant="ghost"
+                          aria-label={`${intl.formatMessage(
+                            messages.moveUp
+                          )}: ${item.label}`}
+                          isDisabled={props.isDisabled || index === 0}
+                          onPress={() =>
+                            onPiecesChange(move(pieces, index, index - 1))
+                          }
+                        >
+                          <Icon>
+                            <ArrowUpward />
+                          </Icon>
+                        </IconButton>
+                        <IconButton
+                          size="xs"
+                          variant="ghost"
+                          aria-label={`${intl.formatMessage(
+                            messages.moveDown
+                          )}: ${item.label}`}
+                          isDisabled={
+                            props.isDisabled || index === pieces.length - 1
+                          }
+                          onPress={() =>
+                            onPiecesChange(move(pieces, index, index + 1))
+                          }
+                        >
+                          <Icon>
+                            <ArrowDownward />
+                          </Icon>
+                        </IconButton>
+                        <IconButton
+                          size="xs"
+                          variant="ghost"
+                          aria-label={`${intl.formatMessage(
+                            messages.remove
+                          )}: ${item.label}`}
+                          isDisabled={props.isDisabled}
+                          onPress={() =>
+                            onPiecesChange(
+                              pieces.filter((piece) => piece.id !== item.key)
+                            )
+                          }
+                        >
+                          <Icon>
+                            <Close />
+                          </Icon>
+                        </IconButton>
+                      </Flex>
+                    </DraggableList.Item>
+                  );
+                }}
+              </DraggableList.Root>
+            )}
+            {pieces.length > 0 && (
+              <Text color="neutral.11" data-testid="pieces-chosen">
+                {intl.formatMessage(messages.piecesCount, {
+                  count: pieces.length,
+                })}
+              </Text>
+            )}
+            {props.errors.map((message) => (
+              <Text key={message} color="critical.11" role="alert">
+                {message}
+              </Text>
+            ))}
+            {soldOutPieces.map((piece) => (
+              <Alert.Root key={piece.id} colorPalette="warning">
+                <Alert.Title>
+                  {intl.formatMessage(messages.soldOutTitle, {
+                    piece: piece.name,
+                  })}
+                </Alert.Title>
+                <Alert.Description>
+                  {intl.formatMessage(messages.soldOutBody)}
+                </Alert.Description>
+              </Alert.Root>
+            ))}
+          </Stack>
+        </PageContent.Column>
+      </PageContent.Root>
+    </PageContent.Root>
+  );
+};
